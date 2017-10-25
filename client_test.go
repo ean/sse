@@ -62,6 +62,10 @@ func TestClient(t *testing.T) {
 					})
 					done <- true
 				}(cErr)
+				ctxWait, cancelWait := context.WithTimeout(context.Background(), 15*time.Second)
+				err := c.WaitForConnect(ctxWait)
+				cancelWait()
+				So(err, ShouldBeNil)
 
 				for i := 0; i < 5; i++ {
 					msg, err := wait(events, time.Second*1)

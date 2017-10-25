@@ -28,16 +28,36 @@ type Client struct {
 	Headers        map[string]string
 	EncodingBase64 bool
 	EventID        string
+	ConnectedChan  chan struct{}
 }
 
 // NewClient creates a new client
 func NewClient(url string) *Client {
 	c := &Client{
-		URL:        url,
-		Connection: &http.Client{},
-		Headers:    make(map[string]string),
+		URL:           url,
+		Connection:    &http.Client{},
+		Headers:       make(map[string]string),
+		ConnectedChan: make(chan struct{}),
 	}
 	return c
+}
+
+// WaitForConnect waits for the first subscribe call to be fully connected
+// if the context is cancelled before the connection finished, an error is returned.
+func (c *Client) WaitForConnect(ctx context.Context) error {
+	select {
+	case <-c.ConnectedChan:
+		return nil
+	case <-ctx.Done():
+		return errors.New("context was cancelled before connect finished")
+	}
+}
+
+func (c *Client) connected() {
+	if c.ConnectedChan != nil {
+		close(c.ConnectedChan)
+		c.ConnectedChan = nil
+	}
 }
 
 // SubscribeContext to a data stream, with a cancelable context
@@ -47,6 +67,7 @@ func (c *Client) SubscribeContext(ctx context.Context, stream string, handler fu
 		return err
 	}
 	defer resp.Body.Close()
+	c.connected()
 
 	reader := bufio.NewReader(resp.Body)
 
@@ -70,6 +91,7 @@ func (c *Client) SubscribeChanContext(ctx context.Context, stream string, ch cha
 		close(ch)
 		return err
 	}
+	c.connected()
 
 	if resp.StatusCode != 200 {
 		close(ch)
