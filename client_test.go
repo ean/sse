@@ -5,10 +5,14 @@
 package sse
 
 import (
+	"context"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	_ "net/http/pprof"
 
 	. "github.com/smartystreets/goconvey/convey"
 )
@@ -36,21 +40,27 @@ func setup() {
 }
 
 func TestClient(t *testing.T) {
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 	setup()
 	Convey("Given a new Client", t, func() {
 		c := NewClient(url)
 
 		Convey("When connecting to a new stream", func() {
 			Convey("It should receive events ", func() {
+				ctx, cancel := context.WithCancel(context.Background())
 				events := make(chan *Event)
 				var cErr error
+				done := make(chan bool)
 				go func(cErr error) {
-					cErr = c.Subscribe("test", func(msg *Event) {
+					cErr = c.SubscribeContext(ctx, "test", func(msg *Event) {
 						if msg.Data != nil {
 							events <- msg
 							return
 						}
 					})
+					done <- true
 				}(cErr)
 
 				for i := 0; i < 5; i++ {
@@ -58,9 +68,16 @@ func TestClient(t *testing.T) {
 					So(err, ShouldBeNil)
 					So(string(msg), ShouldEqual, "ping")
 				}
+				cancel()
+				select {
+				case <-done:
+					// all ok
+				case <-time.After(180 * time.Second):
+					So("timeout", ShouldEqual, "")
+				}
+
 				So(cErr, ShouldBeNil)
 			})
-
 		})
 	})
 }

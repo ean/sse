@@ -7,6 +7,7 @@ package sse
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/base64"
 	"errors"
 	"log"
@@ -31,16 +32,17 @@ type Client struct {
 
 // NewClient creates a new client
 func NewClient(url string) *Client {
-	return &Client{
+	c := &Client{
 		URL:        url,
 		Connection: &http.Client{},
 		Headers:    make(map[string]string),
 	}
+	return c
 }
 
-// Subscribe to a data stream
-func (c *Client) Subscribe(stream string, handler func(msg *Event)) error {
-	resp, err := c.request(stream)
+// SubscribeContext to a data stream, with a cancelable context
+func (c *Client) SubscribeContext(ctx context.Context, stream string, handler func(msg *Event)) error {
+	resp, err := c.request(ctx, stream)
 	if err != nil {
 		return err
 	}
@@ -61,9 +63,9 @@ func (c *Client) Subscribe(stream string, handler func(msg *Event)) error {
 	}
 }
 
-// SubscribeChan sends all events to the provided channel
-func (c *Client) SubscribeChan(stream string, ch chan *Event) error {
-	resp, err := c.request(stream)
+// SubscribeChanContext sends all events to the provided channel, with a cancelable context
+func (c *Client) SubscribeChanContext(ctx context.Context, stream string, ch chan *Event) error {
+	resp, err := c.request(ctx, stream)
 	if err != nil {
 		close(ch)
 		return err
@@ -95,11 +97,22 @@ func (c *Client) SubscribeChan(stream string, ch chan *Event) error {
 	return nil
 }
 
-func (c *Client) request(stream string) (*http.Response, error) {
+// Subscribe to a data stream
+func (c *Client) Subscribe(stream string, handler func(msg *Event)) error {
+	return c.SubscribeContext(context.Background(), stream, handler)
+}
+
+// SubscribeChan sends all events to the provided channel
+func (c *Client) SubscribeChan(stream string, ch chan *Event) error {
+	return c.SubscribeChanContext(context.Background(), stream, ch)
+}
+
+func (c *Client) request(ctx context.Context, stream string) (*http.Response, error) {
 	req, err := http.NewRequest("GET", c.URL, nil)
 	if err != nil {
 		return nil, err
 	}
+	req = req.WithContext(ctx)
 
 	// Setup request, specify stream to connect to
 	query := req.URL.Query()
@@ -119,7 +132,8 @@ func (c *Client) request(stream string) (*http.Response, error) {
 		req.Header.Set(k, v)
 	}
 
-	return c.Connection.Do(req)
+	resp, err := c.Connection.Do(req)
+	return resp, err
 }
 
 func (c *Client) processEvent(msg []byte) *Event {
