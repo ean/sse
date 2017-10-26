@@ -12,6 +12,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"sync"
 )
 
 var (
@@ -28,7 +29,8 @@ type Client struct {
 	Headers        map[string]string
 	EncodingBase64 bool
 	EventID        string
-	ConnectedChan  chan struct{}
+	connectedChan  chan struct{}
+	lock           *sync.Mutex
 }
 
 // NewClient creates a new client
@@ -37,7 +39,8 @@ func NewClient(url string) *Client {
 		URL:           url,
 		Connection:    &http.Client{},
 		Headers:       make(map[string]string),
-		ConnectedChan: make(chan struct{}),
+		connectedChan: make(chan struct{}),
+		lock:          &sync.Mutex{},
 	}
 	return c
 }
@@ -46,7 +49,7 @@ func NewClient(url string) *Client {
 // if the context is cancelled before the connection finished, an error is returned.
 func (c *Client) WaitForConnect(ctx context.Context) error {
 	select {
-	case <-c.ConnectedChan:
+	case <-c.connectedChan:
 		return nil
 	case <-ctx.Done():
 		return errors.New("context was cancelled before connect finished")
@@ -54,9 +57,11 @@ func (c *Client) WaitForConnect(ctx context.Context) error {
 }
 
 func (c *Client) connected() {
-	if c.ConnectedChan != nil {
-		close(c.ConnectedChan)
-		c.ConnectedChan = nil
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if c.connectedChan != nil {
+		close(c.connectedChan)
+		c.connectedChan = nil
 	}
 }
 
