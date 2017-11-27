@@ -59,9 +59,12 @@ func (c *Client) WaitForConnect(ctx context.Context) error {
 func (c *Client) connected() {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	if c.connectedChan != nil {
+	select {
+	// Channel closed already
+	case <-c.connectedChan:
+		return
+	default:
 		close(c.connectedChan)
-		c.connectedChan = nil
 	}
 }
 
