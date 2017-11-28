@@ -12,6 +12,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/http/httptrace"
 	"sync"
 )
 
@@ -75,7 +76,6 @@ func (c *Client) SubscribeContext(ctx context.Context, stream string, handler fu
 		return err
 	}
 	defer resp.Body.Close()
-	c.connected()
 
 	reader := bufio.NewReader(resp.Body)
 
@@ -99,7 +99,6 @@ func (c *Client) SubscribeChanContext(ctx context.Context, stream string, ch cha
 		close(ch)
 		return err
 	}
-	c.connected()
 
 	if resp.StatusCode != 200 {
 		close(ch)
@@ -142,7 +141,14 @@ func (c *Client) request(ctx context.Context, stream string) (*http.Response, er
 	if err != nil {
 		return nil, err
 	}
-	req = req.WithContext(ctx)
+	trace := &httptrace.ClientTrace{
+		WroteRequest: func(info httptrace.WroteRequestInfo) {
+			if info.Err == nil {
+				c.connected()
+			}
+		},
+	}
+	req = req.WithContext(httptrace.WithClientTrace(ctx, trace))
 
 	// Setup request, specify stream to connect to
 	query := req.URL.Query()
